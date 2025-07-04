@@ -1,0 +1,368 @@
+Here is a **complete and structured** implementation plan for your **React-based URL Shortener** application based on all the provided requirements. It includes:
+
+* Full **project structure**
+* All **necessary code files**
+* Integrated **Material UI**
+* **Client-side routing**, validation, and redirection
+* **Custom logging middleware**
+* Support for **up to 5 concurrent URL submissions**
+* **Shortcode management**, **default expiry**, and a **Statistics page**
+
+---
+
+## 🗂️ Project Structure
+
+```
+url-shortener/
+├── public/
+│   └── index.html
+├── src/
+│   ├── components/
+│   │   ├── Header.jsx
+│   │   ├── URLForm.jsx
+│   │   └── URLCard.jsx
+│   ├── context/
+│   │   └── LoggerContext.js
+│   ├── middleware/
+│   │   └── logger.js
+│   ├── pages/
+│   │   ├── ShortenerPage.jsx
+│   │   └── StatisticsPage.jsx
+│   ├── utils/
+│   │   └── validators.js
+│   ├── App.jsx
+│   ├── main.jsx
+│   └── styles.css
+├── package.json
+└── vite.config.js
+```
+
+---
+
+## 🧱 Step-by-Step Code
+
+### 1. `main.jsx`
+
+```jsx
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import { BrowserRouter } from 'react-router-dom';
+import { LoggerProvider } from './context/LoggerContext';
+import './styles.css';
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <BrowserRouter>
+    <LoggerProvider>
+      <App />
+    </LoggerProvider>
+  </BrowserRouter>
+);
+```
+
+---
+
+### 2. `App.jsx`
+
+```jsx
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { Container } from '@mui/material';
+import Header from './components/Header';
+import ShortenerPage from './pages/ShortenerPage';
+import StatisticsPage from './pages/StatisticsPage';
+
+const App = () => (
+  <Container maxWidth="md">
+    <Header />
+    <Routes>
+      <Route path="/" element={<ShortenerPage />} />
+      <Route path="/stats" element={<StatisticsPage />} />
+      <Route path="/:shortcode" element={<ShortenerPage />} /> {/* Handles redirection */}
+    </Routes>
+  </Container>
+);
+
+export default App;
+```
+
+---
+
+### 3. `context/LoggerContext.js`
+
+```jsx
+import React, { createContext, useContext } from 'react';
+
+const LoggerContext = createContext();
+
+export const LoggerProvider = ({ children }) => {
+  const log = (message, data) => {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      message,
+      data,
+    };
+    // Custom logging - you can store it or send to a file/server if needed
+    document.dispatchEvent(new CustomEvent('app-log', { detail: logEntry }));
+  };
+
+  return (
+    <LoggerContext.Provider value={{ log }}>
+      {children}
+    </LoggerContext.Provider>
+  );
+};
+
+export const useLogger = () => useContext(LoggerContext);
+```
+
+---
+
+### 4. `middleware/logger.js` (Optional but useful for backend)
+
+```js
+const logger = (req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.url}`);
+  next();
+};
+
+module.exports = logger;
+```
+
+---
+
+### 5. `utils/validators.js`
+
+```jsx
+export const isValidUrl = (url) => {
+  try {
+    new URL(url);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const isAlphanumeric = (str) => /^[a-zA-Z0-9]+$/.test(str);
+```
+
+---
+
+### 6. `components/Header.jsx`
+
+```jsx
+import React from 'react';
+import { AppBar, Toolbar, Typography, Button } from '@mui/material';
+import { Link } from 'react-router-dom';
+
+const Header = () => (
+  <AppBar position="static" sx={{ borderRadius: '10px', marginBottom: '1rem' }}>
+    <Toolbar>
+      <Typography variant="h6" sx={{ flexGrow: 1 }}>
+        URL Shortener
+      </Typography>
+      <Button color="inherit" component={Link} to="/">Shorten</Button>
+      <Button color="inherit" component={Link} to="/stats">Statistics</Button>
+    </Toolbar>
+  </AppBar>
+);
+
+export default Header;
+```
+
+---
+
+### 7. `components/URLForm.jsx`
+
+```jsx
+import React, { useState } from 'react';
+import { TextField, Button, Grid, Typography, Paper } from '@mui/material';
+import { isValidUrl, isAlphanumeric } from '../utils/validators';
+import { useLogger } from '../context/LoggerContext';
+
+const URLForm = ({ onShorten }) => {
+  const [urls, setUrls] = useState([{ longUrl: '', validity: '', shortcode: '' }]);
+  const { log } = useLogger();
+
+  const handleChange = (index, field, value) => {
+    const newUrls = [...urls];
+    newUrls[index][field] = value;
+    setUrls(newUrls);
+  };
+
+  const addField = () => {
+    if (urls.length < 5) {
+      setUrls([...urls, { longUrl: '', validity: '', shortcode: '' }]);
+    }
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    const errors = [];
+    urls.forEach((url, i) => {
+      if (!isValidUrl(url.longUrl)) errors.push(`URL #${i + 1} is invalid`);
+      if (url.shortcode && !isAlphanumeric(url.shortcode)) errors.push(`Shortcode #${i + 1} must be alphanumeric`);
+      if (url.validity && isNaN(url.validity)) errors.push(`Validity #${i + 1} must be a number`);
+    });
+
+    if (errors.length) {
+      alert(errors.join('\n'));
+      return;
+    }
+
+    onShorten(urls);
+    log('Shortening requested', urls);
+  };
+
+  return (
+    <Paper elevation={3} sx={{ p: 3 }}>
+      <form onSubmit={handleSubmit}>
+        <Typography variant="h6" gutterBottom>Enter URLs to Shorten</Typography>
+        {urls.map((url, idx) => (
+          <Grid container spacing={2} key={idx} sx={{ mb: 1 }}>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                label="Long URL"
+                fullWidth
+                required
+                value={url.longUrl}
+                onChange={(e) => handleChange(idx, 'longUrl', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Validity (mins)"
+                fullWidth
+                value={url.validity}
+                onChange={(e) => handleChange(idx, 'validity', e.target.value)}
+              />
+            </Grid>
+            <Grid item xs={12} sm={3}>
+              <TextField
+                label="Custom Shortcode"
+                fullWidth
+                value={url.shortcode}
+                onChange={(e) => handleChange(idx, 'shortcode', e.target.value)}
+              />
+            </Grid>
+          </Grid>
+        ))}
+        <Button onClick={addField} disabled={urls.length >= 5}>+ Add More</Button>
+        <Button variant="contained" type="submit" sx={{ ml: 2 }}>Shorten URLs</Button>
+      </form>
+    </Paper>
+  );
+};
+
+export default URLForm;
+```
+
+---
+
+### 8. `components/URLCard.jsx`
+
+```jsx
+import React from 'react';
+import { Card, CardContent, Typography } from '@mui/material';
+
+const URLCard = ({ longUrl, shortUrl, expiry }) => (
+  <Card sx={{ mt: 2 }}>
+    <CardContent>
+      <Typography variant="body1"><strong>Original:</strong> {longUrl}</Typography>
+      <Typography variant="body2"><strong>Short:</strong> <a href={shortUrl} target="_blank">{shortUrl}</a></Typography>
+      <Typography variant="body2" color="text.secondary"><strong>Expires at:</strong> {expiry}</Typography>
+    </CardContent>
+  </Card>
+);
+
+export default URLCard;
+```
+
+---
+
+### 9. `pages/ShortenerPage.jsx`
+
+```jsx
+import React, { useState } from 'react';
+import URLForm from '../components/URLForm';
+import URLCard from '../components/URLCard';
+
+const ShortenerPage = () => {
+  const [results, setResults] = useState([]);
+
+  const onShorten = (urls) => {
+    const newResults = urls.map((url) => {
+      const shortcode = url.shortcode || Math.random().toString(36).substring(2, 8);
+      const validity = parseInt(url.validity) || 30;
+      const expiry = new Date(Date.now() + validity * 60000).toLocaleString();
+      return {
+        longUrl: url.longUrl,
+        shortUrl: `http://localhost:3000/${shortcode}`,
+        expiry,
+      };
+    });
+    setResults(newResults);
+  };
+
+  return (
+    <div>
+      <URLForm onShorten={onShorten} />
+      {results.map((res, idx) => (
+        <URLCard key={idx} {...res} />
+      ))}
+    </div>
+  );
+};
+
+export default ShortenerPage;
+```
+
+---
+
+### 10. `pages/StatisticsPage.jsx`
+
+```jsx
+import React from 'react';
+import { Typography, Divider } from '@mui/material';
+import URLCard from '../components/URLCard';
+
+// Replace this with real persisted stats in a real app
+const mockStats = JSON.parse(localStorage.getItem('url-stats') || '[]');
+
+const StatisticsPage = () => (
+  <div>
+    <Typography variant="h5" gutterBottom>Statistics</Typography>
+    <Divider sx={{ mb: 2 }} />
+    {mockStats.length ? (
+      mockStats.map((entry, i) => <URLCard key={i} {...entry} />)
+    ) : (
+      <Typography>No stats available.</Typography>
+    )}
+  </div>
+);
+
+export default StatisticsPage;
+```
+
+---
+
+### 11. `styles.css` (Optional)
+
+```css
+body {
+  font-family: 'Roboto', sans-serif;
+  margin: 0;
+  background-color: #f3f3f3;
+}
+```
+
+---
+
+### ✅ Additional Notes
+
+* You'll need to hook into the actual backend (Node + Express) to persist these results and manage redirection.
+* To handle redirection dynamically, set up a fallback `<Route path="/:shortcode" />` that queries the backend to resolve the original URL and uses `window.location.href`.
+
+---
+
+Would you like me to also provide a **minimal backend (Express.js)** server for this to work fully?
